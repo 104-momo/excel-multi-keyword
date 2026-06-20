@@ -23,6 +23,7 @@ import {
   FileDown,
   Highlighter,
   X,
+  Snowflake,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -384,7 +385,17 @@ export function FilterTool() {
     value: string;
   } | null>(null);
 
+  /**
+   * Freeze panes: -1 = nothing frozen, 0 = header only (default),
+   * N (>0) = header + first N data rows frozen (sticky) while scrolling.
+   */
+  const [freezePanes, setFreezePanes] = React.useState(0);
+
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const headerRef = React.useRef<HTMLTableSectionElement>(null);
+  const frozenRowRefs = React.useRef<Map<number, HTMLTableRowElement>>(
+    new Map(),
+  );
 
   /* ----------------------------- file handling ---------------------------- */
 
@@ -445,6 +456,7 @@ export function FilterTool() {
     setKeywordsText("");
     setPreviewLimit(200);
     setHighlight(null);
+    setFreezePanes(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
@@ -658,6 +670,57 @@ export function FilterTool() {
     if (!highlight || !data) return "";
     return data.headers[highlight.col] ?? "";
   }, [highlight, data]);
+
+  /* ------------------------------ freeze panes ---------------------------- */
+
+  /** Number of data rows currently frozen (clamped to visible rows). */
+  const frozenCount = React.useMemo(() => {
+    if (freezePanes <= 0) return 0;
+    return Math.min(freezePanes, previewIndices.length);
+  }, [freezePanes, previewIndices.length]);
+
+  const [layout, setLayout] = React.useState<{
+    header: number;
+    rows: number[];
+  }>({ header: 0, rows: [] });
+
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      const headerH =
+        headerRef.current?.getBoundingClientRect().height ?? 0;
+      const rows: number[] = [];
+      for (let i = 0; i < frozenCount; i++) {
+        const origIdx = previewIndices[i];
+        const el = frozenRowRefs.current.get(origIdx);
+        rows.push(el?.getBoundingClientRect().height ?? 0);
+      }
+      setLayout((prev) => {
+        const same =
+          prev.header === headerH &&
+          prev.rows.length === rows.length &&
+          prev.rows.every((h, i) => h === rows[i]);
+        return same ? prev : { header: headerH, rows };
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (headerRef.current) ro.observe(headerRef.current);
+    frozenRowRefs.current.forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [frozenCount, previewIndices, data]);
+
+  /** Cumulative sticky top offset (px) for each frozen data row. */
+  const frozenTopOffsets = React.useMemo(() => {
+    const offsets: number[] = [];
+    let acc = layout.header;
+    for (const h of layout.rows) {
+      offsets.push(acc);
+      acc += h;
+    }
+    return offsets;
+  }, [layout]);
+
+  const headerSticky = freezePanes !== -1;
 
   /* --------------------------------- export ------------------------------- */
 
@@ -1167,9 +1230,43 @@ export function FilterTool() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Snowflake className="h-4 w-4 text-sky-500" />
+                      <span className="text-muted-foreground">冻结窗格</span>
+                      <Select
+                        value={String(freezePanes)}
+                        onValueChange={(v) => setFreezePanes(Number(v))}
+                      >
+                        <SelectTrigger size="sm" className="w-[150px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="-1">不冻结</SelectItem>
+                          <SelectItem value="0">仅冻结表头</SelectItem>
+                          <SelectItem value="1">表头 + 首行</SelectItem>
+                          <SelectItem value="2">表头 + 2 行</SelectItem>
+                          <SelectItem value="3">表头 + 3 行</SelectItem>
+                          <SelectItem value="5">表头 + 5 行</SelectItem>
+                          <SelectItem value="10">表头 + 10 行</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {freezePanes > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          （滚动时前 {frozenCount} 行固定）
+                        </span>
+                      )}
+                    </div>
+                  </div>
                   <div className="max-h-[28rem] overflow-auto rounded-lg border">
                     <table className="w-full caption-bottom text-sm">
-                      <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+                      <TableHeader
+                        ref={headerRef}
+                        className={cn(
+                          "bg-muted/95 backdrop-blur",
+                          headerSticky && "sticky top-0 z-20",
+                        )}
+                      >
                         <TableRow className="hover:bg-transparent">
                           <TableHead className="w-12 text-center text-xs text-muted-foreground">
                             #
@@ -1211,8 +1308,35 @@ export function FilterTool() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {previewIndices.map((origIdx, displayRow) => (
-                          <TableRow key={origIdx} className="group">
+                        {previewIndices.map((origIdx, displayRow) => {
+                          const isFrozen = displayRow < frozenCount;
+                          return (
+                          <TableRow
+                            key={origIdx}
+                            ref={
+                              isFrozen
+                                ? (el) => {
+                                    if (el)
+                                      frozenRowRefs.current.set(origIdx, el);
+                                    else
+                                      frozenRowRefs.current.delete(origIdx);
+                                  }
+                                : undefined
+                            }
+                            className={cn(
+                              "group",
+                              isFrozen && "bg-background",
+                            )}
+                            style={
+                              isFrozen
+                                ? {
+                                    position: "sticky",
+                                    top: frozenTopOffsets[displayRow] ?? 0,
+                                    zIndex: 10,
+                                  }
+                                : undefined
+                            }
+                          >
                             <TableCell className="text-center text-xs text-muted-foreground">
                               {displayRow + 1}
                             </TableCell>
@@ -1265,7 +1389,8 @@ export function FilterTool() {
                               </button>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </table>
                   </div>

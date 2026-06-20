@@ -113,3 +113,30 @@ Work Log:
 Stage Summary:
 - 修改文件：`src/components/filter-tool.tsx`。
 - 新功能：单击任意单元格 → 同列所有相同值单元格高亮（玫红），源单元格加深+边框；顶部徽章显示「列名=值 N 处」并支持一键清除；再次单击源单元格 toggle 取消。与现有筛选(amber mark)、编辑(双击)、筛选列高亮(emerald)完全兼容。
+
+---
+Task ID: 5
+Agent: main (Z.ai Code)
+Task: 新增「冻结窗格」功能——可选择是否冻结表头/首行（或多行），滚动时固定顶部行便于对照。
+
+Work Log:
+- 在 `filter-tool.tsx` 新增 `freezePanes` 状态（-1=不冻结 / 0=仅表头 / N=表头+N行，默认 0），并在 reset() 中重置。
+- 新增 `headerRef`（指向 `<thead>`）与 `frozenRowRefs`（Map<origIdx, HTMLTableRowElement>）。
+- 用 `useLayoutEffect` + `ResizeObserver` 测量表头高度与每个冻结行高度，存入 `layout` 状态；`frozenTopOffsets` memo 计算每行累积 sticky top 偏移。
+- 表格区上方新增「冻结窗格」工具栏：Snowflake 图标 + Select（不冻结/仅冻结表头/表头+首行/2/3/5/10行）+ 动态提示「滚动时前 N 行固定」。
+- 表头 `<TableHeader>` 改为条件 sticky：`headerSticky = freezePanes !== -1`，sticky 时 z-20。
+- 数据行 `<TableRow>` 对前 `frozenCount` 行：加 ref、`position:sticky; top:offset; z-index:10`、`bg-background`（纯白覆盖滚动内容）。
+- 颜色：冻结图标用 sky-500（天蓝），与 emerald/amber/rose 四色互不冲突。
+- 验证（Agent Browser + VLM 全部通过）：
+  - freeze=3：滚到底部，前3行(DD202401000/1001/1002)固定，sticky top=40/81/122px，第4行 static；VLM 确认表头+前3行固定、背景干净、分隔清晰 ✓
+  - freeze=1：仅第1行 sticky，2/3 行 static ✓
+  - freeze=0：仅表头 sticky，数据行全 static ✓
+  - freeze=-1：表头滚走（headerTop=-825，headerScrolledAway=true）✓
+  - 冻结行可双击编辑（北京→天津，editCount=1，编辑后仍 sticky）✓
+  - 移动端 freeze=3 同样生效（row1-3 sticky, row4 static），无横向溢出 ✓
+  - 无控制台错误 ✓
+  - VLM 视觉确认冻结控件可见、表头与首3行固定、背景干净分隔清晰 ✓
+
+Stage Summary:
+- 修改文件：`src/components/filter-tool.tsx`。
+- 新功能：表格上方「冻结窗格」下拉，支持 不冻结 / 仅冻结表头 / 表头+N行(N=1/2/3/5/10)。冻结的顶部行在纵向滚动时固定（sticky），表头始终在最上(z-20)、冻结行次之(z-10)、普通行 z-auto；冻结行纯白背景确保滚动内容不透出。冻结行仍可双击编辑。与现有筛选/高亮/编辑功能完全兼容。
