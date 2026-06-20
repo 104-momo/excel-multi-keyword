@@ -21,6 +21,8 @@ import {
   Lock,
   RefreshCcw,
   FileDown,
+  Highlighter,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -247,7 +249,10 @@ type EditableCellProps = {
   isFiltering: boolean;
   keywords: string[];
   caseSensitive: boolean;
+  isValueHighlighted: boolean;
+  isSelectionSource: boolean;
   onCommit: (rowIndex: number, colIndex: number, newVal: string) => void;
+  onSelectValue: (rowIndex: number, colIndex: number, value: string) => void;
 };
 
 const EditableCell = React.memo(function EditableCell({
@@ -258,7 +263,10 @@ const EditableCell = React.memo(function EditableCell({
   isFiltering,
   keywords,
   caseSensitive,
+  isValueHighlighted,
+  isSelectionSource,
   onCommit,
+  onSelectValue,
 }: EditableCellProps) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState("");
@@ -290,6 +298,10 @@ const EditableCell = React.memo(function EditableCell({
     setDraft(str);
   }, [str]);
 
+  const handleSelect = React.useCallback(() => {
+    onSelectValue(rowIndex, colIndex, str);
+  }, [onSelectValue, rowIndex, colIndex, str]);
+
   if (editing) {
     return (
       <input
@@ -313,9 +325,16 @@ const EditableCell = React.memo(function EditableCell({
 
   return (
     <div
+      onClick={handleSelect}
       onDoubleClick={startEdit}
-      className="min-h-[1.4rem] cursor-text px-1 py-0.5"
-      title="双击编辑"
+      className={cn(
+        "min-h-[1.4rem] cursor-text px-1 py-0.5 transition-colors",
+        isValueHighlighted &&
+          "bg-rose-100 dark:bg-rose-950/40",
+        isSelectionSource &&
+          "ring-2 ring-inset ring-rose-500 bg-rose-200/80 dark:bg-rose-900/50",
+      )}
+      title="单击高亮同列相同值，双击编辑"
     >
       {isFilterCol && isFiltering
         ? highlightMatch(str, keywords, caseSensitive)
@@ -357,6 +376,13 @@ export function FilterTool() {
 
   const [previewLimit, setPreviewLimit] = React.useState(200);
   const [dragOver, setDragOver] = React.useState(false);
+
+  /** Click-to-highlight: the cell the user clicked; matching values in the same column get highlighted. */
+  const [highlight, setHighlight] = React.useState<{
+    row: number;
+    col: number;
+    value: string;
+  } | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -418,6 +444,7 @@ export function FilterTool() {
     setFilterColumn("");
     setKeywordsText("");
     setPreviewLimit(200);
+    setHighlight(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
@@ -474,6 +501,7 @@ export function FilterTool() {
     originalDataRef.current = deepClone(next);
     setEditCount(0);
     setEditSnapshot(null);
+    setHighlight(null);
     setFilterColumn(width > 0 ? "0" : "");
     setPreviewLimit(200);
   }, [workbook, activeSheet, hasHeader]);
@@ -598,6 +626,38 @@ export function FilterTool() {
   const refreshFilter = React.useCallback(() => {
     setEditSnapshot(null);
   }, []);
+
+  /* --------------------------- click-to-highlight ------------------------- */
+
+  const handleSelectValue = React.useCallback(
+    (rowIndex: number, colIdx: number, value: string) => {
+      setHighlight((prev) =>
+        prev && prev.row === rowIndex && prev.col === colIdx
+          ? null
+          : { row: rowIndex, col: colIdx, value },
+      );
+    },
+    [],
+  );
+
+  const clearHighlight = React.useCallback(() => setHighlight(null), []);
+
+  /** Number of visible cells matching the highlighted value in its column. */
+  const highlightMatchCount = React.useMemo(() => {
+    if (!highlight || !data) return 0;
+    let count = 0;
+    for (const idx of displayedIndices) {
+      if (cellToString(data.rows[idx]?.[highlight.col]) === highlight.value) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [highlight, data, displayedIndices]);
+
+  const highlightColHeader = React.useMemo(() => {
+    if (!highlight || !data) return "";
+    return data.headers[highlight.col] ?? "";
+  }, [highlight, data]);
 
   /* --------------------------------- export ------------------------------- */
 
@@ -1020,6 +1080,26 @@ export function FilterTool() {
                       已编辑 {editCount} 处
                     </Badge>
                   )}
+                  {highlight && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                    >
+                      <Highlighter className="h-3 w-3" />
+                      高亮「{highlightColHeader} = {highlight.value || "(空)"}」
+                      <span className="text-rose-500/80">
+                        {highlightMatchCount} 处
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="清除高亮"
+                        onClick={clearHighlight}
+                        className="ml-0.5 inline-flex items-center justify-center rounded-sm hover:bg-rose-200/70 dark:hover:bg-rose-900/50"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {editCount > 0 && (
@@ -1055,7 +1135,11 @@ export function FilterTool() {
               <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
                   <Pencil className="h-3.5 w-3.5 text-emerald-600" />
-                  双击任意单元格可直接编辑，回车保存、Esc 取消
+                  双击编辑，回车保存、Esc 取消
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Highlighter className="h-3.5 w-3.5 text-rose-500" />
+                  单击单元格高亮同列相同值，再次单击取消
                 </span>
                 {isLocked && (
                   <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
@@ -1135,6 +1219,15 @@ export function FilterTool() {
                             {data.headers.map((_, ci) => {
                               const val = data.rows[origIdx]?.[ci];
                               const isFilterCol = ci === colIndex;
+                              const cellStr = cellToString(val);
+                              const isValueHighlighted =
+                                highlight !== null &&
+                                highlight.col === ci &&
+                                highlight.value === cellStr;
+                              const isSelectionSource =
+                                highlight !== null &&
+                                highlight.row === origIdx &&
+                                highlight.col === ci;
                               return (
                                 <TableCell
                                   key={ci}
@@ -1152,7 +1245,10 @@ export function FilterTool() {
                                     isFiltering={isFiltering}
                                     keywords={keywords}
                                     caseSensitive={caseSensitive}
+                                    isValueHighlighted={isValueHighlighted}
+                                    isSelectionSource={isSelectionSource}
                                     onCommit={handleCellCommit}
+                                    onSelectValue={handleSelectValue}
                                   />
                                 </TableCell>
                               );

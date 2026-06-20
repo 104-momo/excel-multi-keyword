@@ -84,3 +84,32 @@ Work Log:
 Stage Summary:
 - 修改文件：`src/components/filter-tool.tsx`（import 去掉 Table；表格用原生 <table> + 单一 overflow 容器）。
 - Bug 已修复：表格滚动时表头（含列字母 A/B/C 与列名 + 筛选列√标记 + 操作列）始终固定在表格顶部，用户可随时对应各列内容。
+
+---
+Task ID: 4
+Agent: main (Z.ai Code)
+Task: 新增编辑功能「高亮选中值」——单击单元格高亮同列相同值，便于查看数据分布与重复。
+
+Work Log:
+- 在 `filter-tool.tsx` 的 `EditableCell` 增加 `isValueHighlighted` / `isSelectionSource` / `onSelectValue` 三个 props：
+  - 单元格 div 增加 onClick → 调用 onSelectValue(rowIndex, colIndex, str)；
+  - 命中相同值的单元格加 rose-100 背景；被点击的源单元格额外加 rose-500 ring + 更深 rose 背景；
+  - 修复 hooks 顺序：把 handleSelect useCallback 移到 `if (editing)` 早返回之前（lint react-hooks/rules-of-hooks）。
+- 主组件新增状态 `highlight: {row, col, value} | null`，handleSelectValue 实现再次单击同一单元格即清除（toggle）。
+- 新增 `highlightMatchCount`（基于 displayedIndices，仅统计可见行中同列同值数量）与 `highlightColHeader`（列名）。
+- 结果卡片标题行新增 rose 风格徽章：`高亮「列名 = 值」 N 处` + × 清除按钮；CardDescription 增加「单击单元格高亮同列相同值，再次单击取消」提示。
+- reset() 与解析 effect 中清除 highlight；切换工作表/表头时也清除。
+- 颜色方案：rose（玫红），与 emerald（筛选列）、amber（关键词 mark）三色互不冲突，且非蓝/靛。
+- 验证（Agent Browser + VLM 全部通过）：
+  - 单击北京 → 徽章「高亮 城市=北京 5 处」，4 个 rose 背景 + 1 个源单元格(ring)，共 5 ✓
+  - 再次单击同一单元格 → 高亮清除（徽章消失、0 高亮）✓
+  - 单击产品列「笔记本电脑」→ 徽章「高亮 产品=笔记本电脑 7 处」✓
+  - × 清除按钮 → 高亮清除 ✓
+  - 筛选状态下(北京/上海/广州 15行)单击上海 → 徽章「城市=上海 5 处」（仅统计可见行）✓
+  - 关键词 amber mark 与值高亮 rose 背景共存（15 marks + 5 rose cells）✓
+  - 无控制台错误，移动端无横向溢出 ✓
+  - VLM 视觉确认徽章与粉色高亮可见 ✓
+
+Stage Summary:
+- 修改文件：`src/components/filter-tool.tsx`。
+- 新功能：单击任意单元格 → 同列所有相同值单元格高亮（玫红），源单元格加深+边框；顶部徽章显示「列名=值 N 处」并支持一键清除；再次单击源单元格 toggle 取消。与现有筛选(amber mark)、编辑(双击)、筛选列高亮(emerald)完全兼容。
