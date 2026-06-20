@@ -47,7 +47,6 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -1085,7 +1084,7 @@ export function FilterTool() {
               ) : (
                 <div className="flex flex-col gap-3">
                   <div className="max-h-[28rem] overflow-auto rounded-lg border">
-                    <Table>
+                    <table className="w-full caption-bottom text-sm">
                       <TableHeader className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
                         <TableRow className="hover:bg-transparent">
                           <TableHead className="w-12 text-center text-xs text-muted-foreground">
@@ -1172,7 +1171,7 @@ export function FilterTool() {
                           </TableRow>
                         ))}
                       </TableBody>
-                    </Table>
+                    </table>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">

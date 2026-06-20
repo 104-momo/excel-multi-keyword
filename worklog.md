@@ -66,3 +66,21 @@ Stage Summary:
   - 数值类型保持（金额 157→9999 为 int）✓ 日期保持 datetime ✓
   - 移动端无横向溢出 ✓ 无控制台错误 ✓ sticky footer ✓
 - 关键文件：`src/components/filter-tool.tsx`（~900 行）、`src/app/page.tsx`。
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: 修复 bug——表格表头与列名称被隐藏，滚动后无法看到各列属于什么内容。
+
+Work Log:
+- 用 Agent Browser 复现：桌面端滚动表格体后，VLM 确认「表头区域为空白，数据从第19行开始显示，无列名」。
+- 根因分析：shadcn `Table` 组件把 `<table>` 包在 `<div className="overflow-x-auto">` 里，与外层 `max-h-[28rem] overflow-auto` 形成嵌套 overflow。按 CSS 规范，`overflow-x:auto` 会让该 wrapper 的 `overflow-y` 计算为 `auto`，于是 sticky `th`/`thead` 绑定到无高度限制的内层 wrapper（本身不纵向滚动），导致表头随外层容器一起滚出视口而「消失」。
+- 修复：在 `filter-tool.tsx` 中将 `<Table>`/`</Table>` 替换为原生 `<table className="w-full caption-bottom text-sm">`/`</table>`，与外层 `max-h-[28rem] overflow-auto` 合并为单一滚动容器（同时支持横向+纵向滚动），sticky 表头绑定到该容器并生效。同步从 import 中移除未使用的 `Table` 包装器，保留 `TableHeader/TableBody/TableRow/TableHead/TableCell`。
+- 验证（Agent Browser + VLM）：
+  - 桌面端滚动到底部后，bounding-box 检测 theadTop≈containerTop（headerVisibleAtTop=true）；VLM 确认「表头列名 #/订单号/客户名称/城市/产品/数量/金额/日期/操作 可见且固定在表格顶部」。
+  - 移动端 390px 同样 headerVisibleAtTop=true；VLM 确认「表头列名在滚动时始终显示在顶部」。
+  - lint 通过，dev log 无错误。
+
+Stage Summary:
+- 修改文件：`src/components/filter-tool.tsx`（import 去掉 Table；表格用原生 <table> + 单一 overflow 容器）。
+- Bug 已修复：表格滚动时表头（含列字母 A/B/C 与列名 + 筛选列√标记 + 操作列）始终固定在表格顶部，用户可随时对应各列内容。
