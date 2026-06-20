@@ -3,6 +3,7 @@ import {
   ShieldCheck,
   Zap,
   FileSpreadsheet,
+  Pencil,
   Github,
 } from "lucide-react";
 
@@ -42,12 +43,16 @@ export default function Home() {
           </h1>
           <p className="mt-3 max-w-2xl text-base text-muted-foreground sm:text-lg">
             选定筛选列，输入多个关键词（空格、逗号、换行均可分隔），一键筛出所有包含行。
-            替代 WPS「高级筛选」繁琐的多步骤操作，数据全程在浏览器本地处理。
+            支持双击单元格直接编辑、增删行，并导出编辑后的表格。替代 WPS「高级筛选」繁琐的多步骤操作，数据全程在浏览器本地处理。
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Badge variant="secondary" className="gap-1.5 py-1.5">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
               本地处理 · 不上传服务器
+            </Badge>
+            <Badge variant="secondary" className="gap-1.5 py-1.5">
+              <Pencil className="h-3.5 w-3.5 text-emerald-600" />
+              双击编辑 · 增删行
             </Badge>
             <Badge variant="secondary" className="gap-1.5 py-1.5">
               <Zap className="h-3.5 w-3.5 text-amber-500" />

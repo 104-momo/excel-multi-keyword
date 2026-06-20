@@ -15,6 +15,12 @@ import {
   Info,
   CheckCircle2,
   XCircle,
+  Pencil,
+  Undo2,
+  Plus,
+  Lock,
+  RefreshCcw,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,7 +33,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -146,6 +151,21 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function deepClone<T>(v: T): T {
+  if (typeof structuredClone === "function") return structuredClone(v);
+  return JSON.parse(JSON.stringify(v)) as T;
+}
+
+/** Preserve numeric type when the original cell was a number. */
+function coerceValue(newVal: string, original: CellValue): CellValue {
+  if (newVal === "") return null;
+  if (typeof original === "number") {
+    const n = Number(newVal);
+    if (newVal.trim() !== "" && Number.isFinite(n)) return n;
+  }
+  return newVal;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Sample data                                                                */
 /* -------------------------------------------------------------------------- */
@@ -217,6 +237,97 @@ function buildSampleWorkbook(): XLSX.WorkBook {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  EditableCell — double-click to edit, commit on blur/Enter                 */
+/* -------------------------------------------------------------------------- */
+
+type EditableCellProps = {
+  rowIndex: number;
+  colIndex: number;
+  value: CellValue;
+  isFilterCol: boolean;
+  isFiltering: boolean;
+  keywords: string[];
+  caseSensitive: boolean;
+  onCommit: (rowIndex: number, colIndex: number, newVal: string) => void;
+};
+
+const EditableCell = React.memo(function EditableCell({
+  rowIndex,
+  colIndex,
+  value,
+  isFilterCol,
+  isFiltering,
+  keywords,
+  caseSensitive,
+  onCommit,
+}: EditableCellProps) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const str = cellToString(value);
+
+  React.useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const startEdit = React.useCallback(() => {
+    setDraft(str);
+    setEditing(true);
+  }, [str]);
+
+  const commit = React.useCallback(() => {
+    setEditing(false);
+    if (draft !== str) {
+      onCommit(rowIndex, colIndex, draft);
+    }
+  }, [draft, str, onCommit, rowIndex, colIndex]);
+
+  const cancel = React.useCallback(() => {
+    setEditing(false);
+    setDraft(str);
+  }, [str]);
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        className="w-full rounded-sm bg-background px-1 py-0.5 text-sm outline-none ring-2 ring-emerald-500"
+      />
+    );
+  }
+
+  return (
+    <div
+      onDoubleClick={startEdit}
+      className="min-h-[1.4rem] cursor-text px-1 py-0.5"
+      title="双击编辑"
+    >
+      {isFilterCol && isFiltering
+        ? highlightMatch(str, keywords, caseSensitive)
+        : str || (
+            <span className="text-muted-foreground/40">—</span>
+          )}
+    </div>
+  );
+});
+
+/* -------------------------------------------------------------------------- */
 /*  Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -230,6 +341,14 @@ export function FilterTool() {
 
   const [data, setData] = React.useState<SheetData | null>(null);
   const [parsing, setParsing] = React.useState(false);
+
+  /** Pristine copy of the parsed data, used for "undo all". */
+  const originalDataRef = React.useRef<SheetData | null>(null);
+  const [editCount, setEditCount] = React.useState(0);
+  /** When set, the displayed row set is frozen (editing mode). */
+  const [editSnapshot, setEditSnapshot] = React.useState<number[] | null>(
+    null,
+  );
 
   const [filterColumn, setFilterColumn] = React.useState("");
   const [keywordsText, setKeywordsText] = React.useState("");
@@ -294,6 +413,9 @@ export function FilterTool() {
     setSheetNames([]);
     setActiveSheet("");
     setData(null);
+    originalDataRef.current = null;
+    setEditCount(0);
+    setEditSnapshot(null);
     setFilterColumn("");
     setKeywordsText("");
     setPreviewLimit(200);
@@ -305,11 +427,13 @@ export function FilterTool() {
   React.useEffect(() => {
     if (!workbook || !activeSheet) {
       setData(null);
+      originalDataRef.current = null;
       return;
     }
     const ws = workbook.Sheets[activeSheet];
     if (!ws) {
       setData(null);
+      originalDataRef.current = null;
       return;
     }
     const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {
@@ -319,7 +443,9 @@ export function FilterTool() {
       blankrows: false,
     }) as unknown[][];
     if (aoa.length === 0) {
-      setData({ headers: [], rows: [] });
+      const empty: SheetData = { headers: [], rows: [] };
+      setData(empty);
+      originalDataRef.current = deepClone(empty);
       return;
     }
     let headers: string[];
@@ -344,7 +470,11 @@ export function FilterTool() {
       while (arr.length < width) arr.push(null);
       return arr;
     });
-    setData({ headers, rows });
+    const next: SheetData = { headers, rows };
+    setData(next);
+    originalDataRef.current = deepClone(next);
+    setEditCount(0);
+    setEditSnapshot(null);
     setFilterColumn(width > 0 ? "0" : "");
     setPreviewLimit(200);
   }, [workbook, activeSheet, hasHeader]);
@@ -361,50 +491,147 @@ export function FilterTool() {
     return Number.isFinite(n) ? n : -1;
   }, [filterColumn]);
 
-  const filteredRows = React.useMemo(() => {
+  const liveFilteredIndices = React.useMemo(() => {
     if (!data || data.rows.length === 0) return [];
-    if (colIndex < 0 || colIndex >= data.headers.length) return data.rows;
-    if (keywords.length === 0) return data.rows;
+    if (colIndex < 0 || colIndex >= data.headers.length || keywords.length === 0)
+      return data.rows.map((_, i) => i);
     const kws = caseSensitive
       ? keywords
       : keywords.map((k) => k.toLowerCase());
-    return data.rows.filter((row) => {
+    const out: number[] = [];
+    data.rows.forEach((row, i) => {
       const raw = row[colIndex];
       const str = cellToString(raw);
       const hay = caseSensitive ? str : str.toLowerCase();
-      if (matchMode === "any") return kws.some((k) => hay.includes(k));
-      if (matchMode === "all") return kws.every((k) => hay.includes(k));
-      return !kws.some((k) => hay.includes(k));
+      const hit =
+        matchMode === "any"
+          ? kws.some((k) => hay.includes(k))
+          : matchMode === "all"
+            ? kws.every((k) => hay.includes(k))
+            : !kws.some((k) => hay.includes(k));
+      if (hit) out.push(i);
     });
+    return out;
   }, [data, colIndex, keywords, matchMode, caseSensitive]);
 
+  // keep a ref of the latest live indices for use in stable callbacks
+  const liveFilteredIndicesRef = React.useRef<number[]>([]);
+  React.useEffect(() => {
+    liveFilteredIndicesRef.current = liveFilteredIndices;
+  }, [liveFilteredIndices]);
+
+  // Clear the editing snapshot whenever filter criteria or data source change
+  React.useEffect(() => {
+    setEditSnapshot(null);
+  }, [colIndex, keywordsText, matchMode, caseSensitive, trimWhitespace, activeSheet, hasHeader]);
+
+  const displayedIndices = editSnapshot ?? liveFilteredIndices;
+
   const totalRows = data?.rows.length ?? 0;
-  const matchedCount = filteredRows.length;
-  const previewRows = React.useMemo(
-    () => filteredRows.slice(0, previewLimit),
-    [filteredRows, previewLimit],
+  const displayedCount = displayedIndices.length;
+  const previewIndices = React.useMemo(
+    () => displayedIndices.slice(0, previewLimit),
+    [displayedIndices, previewLimit],
   );
   const isFiltering = keywords.length > 0 && colIndex >= 0;
+  const isLocked = editSnapshot !== null;
 
-  /* -------------------------------- export -------------------------------- */
+  /* --------------------------------- edits -------------------------------- */
 
-  const handleDownload = React.useCallback(() => {
-    if (!data || filteredRows.length === 0) {
-      toast.error("没有可导出的结果");
-      return;
-    }
-    const aoa: unknown[][] = [data.headers, ...filteredRows];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    wb.properties = { ...wb.properties, creator: "Z.ai" };
-    XLSX.utils.book_append_sheet(wb, ws, "筛选结果");
-    const base = fileName
-      ? fileName.replace(/\.(xlsx|xls|csv)$/i, "")
-      : "表格";
-    const outName = `${base}_筛选_${filteredRows.length}行.xlsx`;
-    XLSX.writeFile(wb, outName);
-    toast.success(`已导出 ${filteredRows.length} 行到 ${outName}`);
-  }, [data, filteredRows, fileName]);
+  const handleCellCommit = React.useCallback(
+    (rowIndex: number, colIdx: number, newVal: string) => {
+      setData((prev) => {
+        if (!prev) return prev;
+        const newRows = prev.rows.map((row, i) => {
+          if (i !== rowIndex) return row;
+          const newRow = [...row];
+          newRow[colIdx] = coerceValue(newVal, row[colIdx]);
+          return newRow;
+        });
+        return { ...prev, rows: newRows };
+      });
+      setEditCount((c) => c + 1);
+      setEditSnapshot((snap) => snap ?? liveFilteredIndicesRef.current);
+    },
+    [],
+  );
+
+  const handleDeleteRow = React.useCallback((rowIndex: number) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rows: prev.rows.filter((_, i) => i !== rowIndex),
+      };
+    });
+    setEditSnapshot((snap) =>
+      snap
+        ? snap
+            .filter((idx) => idx !== rowIndex)
+            .map((idx) => (idx > rowIndex ? idx - 1 : idx))
+        : null,
+    );
+    setEditCount((c) => c + 1);
+  }, []);
+
+  const handleAddRow = React.useCallback(() => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const blank = new Array(prev.headers.length).fill(null) as RowData;
+      const newIdx = prev.rows.length;
+      setEditSnapshot((snap) =>
+        snap ? [...snap, newIdx] : [...liveFilteredIndicesRef.current, newIdx],
+      );
+      return { ...prev, rows: [...prev.rows, blank] };
+    });
+    setEditCount((c) => c + 1);
+    setPreviewLimit((l) => Math.max(l, displayedCount + 1));
+  }, [displayedCount]);
+
+  const handleUndoAll = React.useCallback(() => {
+    if (!originalDataRef.current) return;
+    setData(deepClone(originalDataRef.current));
+    setEditSnapshot(null);
+    setEditCount(0);
+    toast.info("已撤销全部编辑，恢复到原始数据");
+  }, []);
+
+  const refreshFilter = React.useCallback(() => {
+    setEditSnapshot(null);
+  }, []);
+
+  /* --------------------------------- export ------------------------------- */
+
+  const exportRows = React.useCallback(
+    (rows: RowData[], label: string) => {
+      if (!data || rows.length === 0) {
+        toast.error("没有可导出的结果");
+        return;
+      }
+      const aoa: unknown[][] = [data.headers, ...rows];
+      const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+      const wb = XLSX.utils.book_new();
+      wb.properties = { ...wb.properties, creator: "Z.ai" };
+      XLSX.utils.book_append_sheet(wb, ws, "筛选结果");
+      const base = fileName
+        ? fileName.replace(/\.(xlsx|xls|csv)$/i, "")
+        : "表格";
+      const outName = `${base}_${label}_${rows.length}行.xlsx`;
+      XLSX.writeFile(wb, outName);
+      toast.success(`已导出 ${rows.length} 行到 ${outName}`);
+    },
+    [data, fileName],
+  );
+
+  const handleExportFiltered = React.useCallback(() => {
+    const rows = displayedIndices.map((i) => data!.rows[i]);
+    exportRows(rows, "筛选结果");
+  }, [displayedIndices, data, exportRows]);
+
+  const handleExportFull = React.useCallback(() => {
+    if (!data) return;
+    exportRows(data.rows, "完整表格");
+  }, [data, exportRows]);
 
   /* -------------------------------- render -------------------------------- */
 
@@ -514,6 +741,7 @@ export function FilterTool() {
                     {sheetNames.length > 1
                       ? ` · ${sheetNames.length} 个工作表`
                       : ""}
+                    {editCount > 0 ? ` · 已编辑 ${editCount} 处` : ""}
                   </p>
                 </div>
                 <Button
@@ -743,13 +971,23 @@ export function FilterTool() {
                 )}
                 <span>
                   {isFiltering ? (
-                    <>
-                      已筛出{" "}
-                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                        {matchedCount}
-                      </span>{" "}
-                      行 / 共 {totalRows} 行
-                    </>
+                    isLocked ? (
+                      <>
+                        结果已锁定（编辑模式）· 当前{" "}
+                        <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                          {displayedCount}
+                        </span>{" "}
+                        行 / 共 {totalRows} 行
+                      </>
+                    ) : (
+                      <>
+                        已筛出{" "}
+                        <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                          {displayedCount}
+                        </span>{" "}
+                        行 / 共 {totalRows} 行
+                      </>
+                    )
                   ) : (
                     <>输入关键词后将自动筛选（当前为预览全部数据）</>
                   )}
@@ -762,37 +1000,81 @@ export function FilterTool() {
           <Card>
             <CardHeader className="pb-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">
                     3
                   </span>
-                  <CardTitle className="text-base">筛选结果</CardTitle>
+                  <CardTitle className="text-base">筛选与编辑</CardTitle>
                   <Badge variant="secondary" className="ml-1">
                     {isFiltering
-                      ? `${matchedCount} / ${totalRows} 行`
-                      : `${totalRows} 行（预览）`}
+                      ? isLocked
+                        ? `已锁定 ${displayedCount} / ${totalRows} 行`
+                        : `${displayedCount} / ${totalRows} 行`
+                      : `${totalRows} 行`}
                   </Badge>
+                  {editCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-amber-400 text-amber-700 dark:text-amber-400"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      已编辑 {editCount} 处
+                    </Badge>
+                  )}
                 </div>
-                <Button
-                  size="sm"
-                  onClick={handleDownload}
-                  disabled={filteredRows.length === 0}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  导出为 Excel
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {editCount > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground"
+                      onClick={handleUndoAll}
+                    >
+                      <Undo2 className="h-3.5 w-3.5" />
+                      撤销全部编辑
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleExportFull}
+                    disabled={totalRows === 0}
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    导出完整表格
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleExportFiltered}
+                    disabled={displayedCount === 0}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    导出筛选结果
+                  </Button>
+                </div>
               </div>
-              <CardDescription>
-                {isFiltering
-                  ? `已筛出 ${matchedCount} 行，下方预览前 ${Math.min(
-                      previewRows.length,
-                      previewLimit,
-                    )} 行，点击「显示更多」可继续加载。`
-                  : "尚未输入关键词，当前展示全部数据。输入关键词后此处将自动筛选。"}
+              <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-1">
+                  <Pencil className="h-3.5 w-3.5 text-emerald-600" />
+                  双击任意单元格可直接编辑，回车保存、Esc 取消
+                </span>
+                {isLocked && (
+                  <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
+                    <Lock className="h-3.5 w-3.5" />
+                    编辑期间结果已锁定，
+                    <button
+                      type="button"
+                      className="underline underline-offset-2 hover:opacity-80"
+                      onClick={refreshFilter}
+                    >
+                      点此刷新筛选
+                    </button>
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {filteredRows.length === 0 ? (
+              {displayedCount === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
                   <XCircle className="h-8 w-8 text-muted-foreground/50" />
                   <p className="text-sm font-medium">没有匹配的行</p>
@@ -840,63 +1122,84 @@ export function FilterTool() {
                               </span>
                             </TableHead>
                           ))}
+                          <TableHead className="w-10 text-center text-xs text-muted-foreground">
+                            操作
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {previewRows.map((row, ri) => (
-                          <TableRow key={ri}>
+                        {previewIndices.map((origIdx, displayRow) => (
+                          <TableRow key={origIdx} className="group">
                             <TableCell className="text-center text-xs text-muted-foreground">
-                              {ri + 1}
+                              {displayRow + 1}
                             </TableCell>
                             {data.headers.map((_, ci) => {
-                              const val = row[ci];
-                              const str = cellToString(val);
+                              const val = data.rows[origIdx]?.[ci];
                               const isFilterCol = ci === colIndex;
                               return (
                                 <TableCell
                                   key={ci}
                                   className={cn(
-                                    "text-sm",
+                                    "p-0",
                                     isFilterCol &&
                                       "bg-emerald-50/60 dark:bg-emerald-950/20",
                                   )}
                                 >
-                                  {isFilterCol && isFiltering
-                                    ? highlightMatch(
-                                        str,
-                                        keywords,
-                                        caseSensitive,
-                                      )
-                                    : str || (
-                                        <span className="text-muted-foreground/40">
-                                          —
-                                        </span>
-                                      )}
+                                  <EditableCell
+                                    rowIndex={origIdx}
+                                    colIndex={ci}
+                                    value={val}
+                                    isFilterCol={isFilterCol}
+                                    isFiltering={isFiltering}
+                                    keywords={keywords}
+                                    caseSensitive={caseSensitive}
+                                    onCommit={handleCellCommit}
+                                  />
                                 </TableCell>
                               );
                             })}
+                            <TableCell className="text-center">
+                              <button
+                                type="button"
+                                aria-label="删除该行"
+                                title="删除该行"
+                                onClick={() => handleDeleteRow(origIdx)}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span>
-                      显示 {previewRows.length} / {matchedCount} 行
+                      显示 {previewIndices.length} / {displayedCount} 行
                       {isFiltering ? `（共 ${totalRows} 行）` : ""}
                     </span>
-                    {previewRows.length < matchedCount && (
+                    <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() =>
-                          setPreviewLimit((l) => l + 500)
-                        }
+                        onClick={handleAddRow}
                       >
-                        显示更多（+500）
+                        <Plus className="h-3.5 w-3.5" />
+                        新增一行
                       </Button>
-                    )}
+                      {previewIndices.length < displayedCount && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setPreviewLimit((l) => l + 500)}
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" />
+                          显示更多（+500）
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
