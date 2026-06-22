@@ -537,12 +537,19 @@ export function FilterTool() {
 
   const liveFilteredIndices = React.useMemo(() => {
     if (!data || data.rows.length === 0) return [];
+
+    const frozenRows: number[] = [];
+    for (let i = 0; i < freezePanes && i < data.rows.length; i++) {
+      frozenRows.push(i);
+    }
+
     if (colIndex < 0 || colIndex >= data.headers.length || keywords.length === 0)
       return data.rows.map((_, i) => i);
+
     const kws = caseSensitive
       ? keywords
       : keywords.map((k) => k.toLowerCase());
-    const out: number[] = [];
+    const filtered: number[] = [];
     data.rows.forEach((row, i) => {
       const raw = row[colIndex];
       const str = cellToString(raw);
@@ -553,10 +560,13 @@ export function FilterTool() {
           : matchMode === "all"
             ? kws.every((k) => hay.includes(k))
             : !kws.some((k) => hay.includes(k));
-      if (hit) out.push(i);
+      if (hit) filtered.push(i);
     });
-    return out;
-  }, [data, colIndex, keywords, matchMode, caseSensitive]);
+
+    const result = [...new Set([...frozenRows, ...filtered])];
+    result.sort((a, b) => a - b);
+    return result;
+  }, [data, colIndex, keywords, matchMode, caseSensitive, freezePanes]);
 
   // keep a ref of the latest live indices for use in stable callbacks
   const liveFilteredIndicesRef = React.useRef<number[]>([]);
