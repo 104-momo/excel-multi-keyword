@@ -573,10 +573,17 @@ export function FilterTool() {
 
   const totalRows = data?.rows.length ?? 0;
   const displayedCount = displayedIndices.length;
-  const previewIndices = React.useMemo(
-    () => displayedIndices.slice(0, previewLimit),
-    [displayedIndices, previewLimit],
-  );
+  /** Preview indices with frozen rows always included (frozen rows have priority over filtering) */
+  const previewIndices = React.useMemo(() => {
+    const frozenRows = [];
+    for (let i = 0; i < freezePanes && i < totalRows; i++) {
+      frozenRows.push(i);
+    }
+    const filteredRows = displayedIndices.filter(idx => !frozenRows.includes(idx));
+    const combined = [...frozenRows, ...filteredRows].slice(0, previewLimit);
+    return combined;
+  }, [displayedIndices, previewLimit, freezePanes, totalRows]);
+
   const isFiltering = keywords.length > 0 && colIndex >= 0;
   const isLocked = editSnapshot !== null;
 
@@ -692,6 +699,15 @@ export function FilterTool() {
     }
     return indices;
   }, [frozenCount]);
+    /** Map from original row index to its position in frozenTopOffsets */
+    const frozenIndexMap = React.useMemo(() => {
+      const map = new Map();
+      frozenRowIndices.forEach((origIdx, pos) => {
+        map.set(origIdx, pos);
+      });
+      return map;
+    }, [frozenRowIndices]);
+
 
   const headerHeight = 48;
   const rowHeight = 36;
@@ -1379,7 +1395,7 @@ export function FilterTool() {
                               isFrozen
                                 ? {
                                     position: "sticky",
-                                    top: frozenTopOffsets[origIdx] ?? 0,
+                                    top: frozenTopOffsets[frozenIndexMap.get(origIdx) ?? 0] ?? 0,
                                     zIndex: 10,
                                   }
                                 : undefined
