@@ -25,7 +25,7 @@ jobs:
         run: npm ci
 
       - name: Build with @cloudflare/next-on-pages
-        uses: cloudflare/next-on-pages-action@v1
+        uses: cloudflare/next-on-pages@1
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
