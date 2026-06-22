@@ -4,8 +4,4 @@
 name = "excel-multi-keyword-filter"
 compatibility_date = "2024-01-01"
 
-# 静态站点部署 - 无需 Pages Functions
-# 所有构建产物在 out/ 目录
-
-[site]
-bucket = "./out"
+pages_build_output_dir = "./out"
