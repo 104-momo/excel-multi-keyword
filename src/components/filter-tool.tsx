@@ -319,7 +319,7 @@ const EditableCell = React.memo(function EditableCell({
             cancel();
           }
         }}
-        className="w-full rounded-sm bg-background px-1 py-0.5 text-sm outline-none ring-2 ring-emerald-500"
+        className="w-full rounded-sm bg-background px-4 py-2.5 text-sm outline-none ring-2 ring-emerald-500"
       />
     );
   }
@@ -329,7 +329,7 @@ const EditableCell = React.memo(function EditableCell({
       onClick={handleSelect}
       onDoubleClick={startEdit}
       className={cn(
-        "min-h-[1.4rem] cursor-text px-1 py-0.5 transition-colors",
+        "min-h-[2rem] cursor-text px-4 py-2.5 text-sm transition-colors",
         isValueHighlighted &&
           "bg-rose-100 dark:bg-rose-950/40",
         isSelectionSource &&
@@ -1351,10 +1351,11 @@ export function FilterTool() {
                             <TableHead
                               key={i}
                               className={cn(
-                                "text-xs",
+                                "text-xs whitespace-nowrap",
                                 i === colIndex &&
                                   "bg-emerald-100/70 font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
                               )}
+                              style={{ minWidth: 100 }}
                             >
                               <span className="flex items-center gap-1.5">
                                 <span className="font-mono text-[10px] text-muted-foreground">
@@ -1415,7 +1416,7 @@ export function FilterTool() {
                                 : undefined
                             }
                           >
-                            <TableCell className="text-center text-xs text-muted-foreground">
+                            <TableCell className="px-4 py-2.5 text-center text-xs text-muted-foreground">
                               {displayRow + 1}
                             </TableCell>
                             {data.headers.map((_, ci) => {
@@ -1435,10 +1436,10 @@ export function FilterTool() {
                                 <TableCell
                                   key={ci}
                                   className={cn(
-                                    "p-0",
                                     isFilterCol &&
                                       "bg-emerald-50/60 dark:bg-emerald-950/20",
                                   )}
+                                  style={{ minWidth: 100 }}
                                 >
                                   <EditableCell
                                     rowIndex={origIdx}
