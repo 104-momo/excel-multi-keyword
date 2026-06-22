@@ -401,9 +401,6 @@ export function FilterTool() {
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const headerRef = React.useRef<HTMLTableSectionElement>(null);
-  const frozenRowRefs = React.useRef<Map<number, HTMLTableRowElement>>(
-    new Map(),
-  );
 
   /* ----------------------------- file handling ---------------------------- */
 
@@ -681,52 +678,34 @@ export function FilterTool() {
 
   /* ------------------------------ freeze panes ---------------------------- */
 
-  /** Number of data rows currently frozen (clamped to visible rows). */
+  /** Number of data rows currently frozen (based on original data, not filtered). */
   const frozenCount = React.useMemo(() => {
     if (freezePanes <= 0) return 0;
-    return Math.min(freezePanes, previewIndices.length);
-  }, [freezePanes, previewIndices.length]);
+    return Math.min(freezePanes, totalRows);
+  }, [freezePanes, totalRows]);
 
-  const [layout, setLayout] = React.useState<{
-    header: number;
-    rows: number[];
-  }>({ header: 0, rows: [] });
+  /** Indices of frozen rows from original data (0, 1, 2, ..., frozenCount-1) */
+  const frozenRowIndices = React.useMemo(() => {
+    const indices: number[] = [];
+    for (let i = 0; i < frozenCount; i++) {
+      indices.push(i);
+    }
+    return indices;
+  }, [frozenCount]);
 
-  React.useLayoutEffect(() => {
-    const measure = () => {
-      const headerH =
-        headerRef.current?.getBoundingClientRect().height ?? 0;
-      const rows: number[] = [];
-      for (let i = 0; i < frozenCount; i++) {
-        const origIdx = previewIndices[i];
-        const el = frozenRowRefs.current.get(origIdx);
-        rows.push(el?.getBoundingClientRect().height ?? 0);
-      }
-      setLayout((prev) => {
-        const same =
-          prev.header === headerH &&
-          prev.rows.length === rows.length &&
-          prev.rows.every((h, i) => h === rows[i]);
-        return same ? prev : { header: headerH, rows };
-      });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (headerRef.current) ro.observe(headerRef.current);
-    frozenRowRefs.current.forEach((el) => ro.observe(el));
-    return () => ro.disconnect();
-  }, [frozenCount, previewIndices, data]);
+  const headerHeight = 48;
+  const rowHeight = 36;
 
   /** Cumulative sticky top offset (px) for each frozen data row. */
   const frozenTopOffsets = React.useMemo(() => {
     const offsets: number[] = [];
-    let acc = layout.header;
-    for (const h of layout.rows) {
+    let acc = headerHeight;
+    for (let i = 0; i < frozenCount; i++) {
       offsets.push(acc);
-      acc += h;
+      acc += rowHeight;
     }
     return offsets;
-  }, [layout]);
+  }, [frozenCount]);
 
   const headerSticky = freezePanes !== -1;
 
@@ -1388,29 +1367,19 @@ export function FilterTool() {
                       <TableBody>
                         {previewIndices.map((origIdx, displayRow) => {
                           if (displayRow >= hiddenStartRow && displayRow < hiddenEndRow) return null;
-                          const isFrozen = displayRow < frozenCount;
+                          const isFrozen = frozenRowIndices.includes(origIdx);
                           return (
                           <TableRow
                             key={origIdx}
-                            ref={
-                              isFrozen
-                                ? (el) => {
-                                    if (el)
-                                      frozenRowRefs.current.set(origIdx, el);
-                                    else
-                                      frozenRowRefs.current.delete(origIdx);
-                                  }
-                                : undefined
-                            }
                             className={cn(
                               "group",
-                              isFrozen && "bg-background",
+                              isFrozen && "bg-background shadow-sm",
                             )}
                             style={
                               isFrozen
                                 ? {
                                     position: "sticky",
-                                    top: frozenTopOffsets[displayRow] ?? 0,
+                                    top: frozenTopOffsets[origIdx] ?? 0,
                                     zIndex: 10,
                                   }
                                 : undefined
