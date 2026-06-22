@@ -688,14 +688,14 @@ export function FilterTool() {
   /** Number of data rows currently frozen (based on original data, not filtered). */
   const frozenCount = React.useMemo(() => {
     if (freezePanes <= 0) return 0;
-    return Math.min(freezePanes, totalRows);
-  }, [freezePanes, totalRows]);
+    return Math.min(freezePanes, previewIndices.length);
+  }, [freezePanes, previewIndices.length]);
 
   /** Indices of frozen rows from original data (0, 1, 2, ..., frozenCount-1) */
   const frozenRowIndices = React.useMemo(() => {
     const indices: number[] = [];
     for (let i = 0; i < frozenCount; i++) {
-      indices.push(i);
+      indices.push(previewIndices[i]);
     }
     return indices;
   }, [frozenCount]);
