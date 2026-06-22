@@ -24,8 +24,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
-        run: npm run build
+      - name: Build with @cloudflare/next-on-pages
+        uses: cloudflare/next-on-pages-action@v1
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
@@ -33,5 +33,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: excel-multi-keyword
-          directory: .next
-          framework: nextjs
+          directory: .vercel/output/static
