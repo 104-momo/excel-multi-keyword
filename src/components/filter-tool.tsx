@@ -391,6 +391,14 @@ export function FilterTool() {
    */
   const [freezePanes, setFreezePanes] = React.useState(0);
 
+  /** Column range to hide: [start, end) */
+  const [hiddenStartColumn, setHiddenStartColumn] = React.useState(0);
+  const [hiddenEndColumn, setHiddenEndColumn] = React.useState(0);
+
+  /** Row range to hide: [start, end) */
+  const [hiddenStartRow, setHiddenStartRow] = React.useState(0);
+  const [hiddenEndRow, setHiddenEndRow] = React.useState(0);
+
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const headerRef = React.useRef<HTMLTableSectionElement>(null);
   const frozenRowRefs = React.useRef<Map<number, HTMLTableRowElement>>(
@@ -931,6 +939,7 @@ export function FilterTool() {
       {/* Step 2 + 3: only after data loaded */}
       {data && data.headers.length > 0 && (
         <>
+          {/* Step 2: filter settings */}
           <Card>
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
@@ -940,10 +949,103 @@ export function FilterTool() {
                 <CardTitle className="text-base">设置筛选条件</CardTitle>
               </div>
               <CardDescription>
-                选定要筛选的列，输入多个关键词，结果实时更新。
+                设置冻结表头、隐藏行列、筛选列与关键词，结果实时更新。
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
+              {/* display settings */}
+              <div className="flex flex-wrap items-start gap-4">
+                <div className="flex items-center gap-2 text-sm">
+                  <Snowflake className="h-4 w-4 text-sky-500" />
+                  <span className="text-muted-foreground">冻结表头</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={freezePanes < 1 ? "1" : freezePanes}
+                      onChange={(e) => {
+                        const val = Math.max(1, Math.min(10, Number(e.target.value) || 1));
+                        setFreezePanes(val);
+                      }}
+                      className="w-16 rounded border px-2 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <span className="text-xs text-muted-foreground">行（最多10行）</span>
+                  </div>
+                  {freezePanes > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      （滚动时前 {frozenCount} 行固定）
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">隐藏列</span>
+                  <span className="text-muted-foreground">从</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={data.headers.length}
+                    value={hiddenStartColumn + 1}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(data.headers.length, Number(e.target.value) || 1));
+                      setHiddenStartColumn(val - 1);
+                    }}
+                    className="w-16 rounded border px-2 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-muted-foreground">到</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={data.headers.length}
+                    value={hiddenEndColumn}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(data.headers.length, Number(e.target.value) || 1));
+                      setHiddenEndColumn(val);
+                    }}
+                    className="w-16 rounded border px-2 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-muted-foreground">列</span>
+                  {hiddenStartColumn < hiddenEndColumn && (
+                    <span className="text-xs text-muted-foreground">
+                      （隐藏第 {hiddenStartColumn + 1}-{hiddenEndColumn} 列）
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">隐藏行</span>
+                  <span className="text-muted-foreground">从</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalRows}
+                    value={hiddenStartRow + 1}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(totalRows, Number(e.target.value) || 1));
+                      setHiddenStartRow(val - 1);
+                    }}
+                    className="w-16 rounded border px-2 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-muted-foreground">到</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalRows}
+                    value={hiddenEndRow}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(totalRows, Number(e.target.value) || 1));
+                      setHiddenEndRow(val);
+                    }}
+                    className="w-16 rounded border px-2 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <span className="text-muted-foreground">行</span>
+                  {hiddenStartRow < hiddenEndRow && (
+                    <span className="text-xs text-muted-foreground">
+                      （隐藏第 {hiddenStartRow + 1}-{hiddenEndRow} 行）
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* column select */}
               <div className="flex flex-col gap-1.5">
                 <Label className="flex items-center gap-1.5 text-sm">
@@ -1230,34 +1332,6 @@ export function FilterTool() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Snowflake className="h-4 w-4 text-sky-500" />
-                      <span className="text-muted-foreground">冻结窗格</span>
-                      <Select
-                        value={String(freezePanes)}
-                        onValueChange={(v) => setFreezePanes(Number(v))}
-                      >
-                        <SelectTrigger size="sm" className="w-[150px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="-1">不冻结</SelectItem>
-                          <SelectItem value="0">仅冻结表头</SelectItem>
-                          <SelectItem value="1">表头 + 首行</SelectItem>
-                          <SelectItem value="2">表头 + 2 行</SelectItem>
-                          <SelectItem value="3">表头 + 3 行</SelectItem>
-                          <SelectItem value="5">表头 + 5 行</SelectItem>
-                          <SelectItem value="10">表头 + 10 行</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {freezePanes > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          （滚动时前 {frozenCount} 行固定）
-                        </span>
-                      )}
-                    </div>
-                  </div>
                   <div className="max-h-[28rem] overflow-auto rounded-lg border">
                     <table className="w-full caption-bottom text-sm">
                       <TableHeader
@@ -1271,7 +1345,9 @@ export function FilterTool() {
                           <TableHead className="w-12 text-center text-xs text-muted-foreground">
                             #
                           </TableHead>
-                          {data.headers.map((h, i) => (
+                          {data.headers.map((h, i) => {
+                            if (i >= hiddenStartColumn && i < hiddenEndColumn) return null;
+                            return (
                             <TableHead
                               key={i}
                               className={cn(
@@ -1301,7 +1377,8 @@ export function FilterTool() {
                                 )}
                               </span>
                             </TableHead>
-                          ))}
+                            );
+                          })}
                           <TableHead className="w-10 text-center text-xs text-muted-foreground">
                             操作
                           </TableHead>
@@ -1309,6 +1386,7 @@ export function FilterTool() {
                       </TableHeader>
                       <TableBody>
                         {previewIndices.map((origIdx, displayRow) => {
+                          if (displayRow >= hiddenStartRow && displayRow < hiddenEndRow) return null;
                           const isFrozen = displayRow < frozenCount;
                           return (
                           <TableRow
@@ -1341,6 +1419,7 @@ export function FilterTool() {
                               {displayRow + 1}
                             </TableCell>
                             {data.headers.map((_, ci) => {
+                              if (ci >= hiddenStartColumn && ci < hiddenEndColumn) return null;
                               const val = data.rows[origIdx]?.[ci];
                               const isFilterCol = ci === colIndex;
                               const cellStr = cellToString(val);
